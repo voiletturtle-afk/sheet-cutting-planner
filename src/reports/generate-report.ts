@@ -248,17 +248,19 @@ const drawSheetDiagram = (
   x: number,
   yTop: number,
   maxW: number,
-  _font: PDFFont,
+  font: PDFFont,
   unit: MeasurementUnitLike,
 ): void => {
   const availH = yTop - 50;
   const scale = Math.min(maxW / sheet.width, availH / sheet.length);
+
   const drawW = sheet.width * scale;
   const drawH = sheet.length * scale;
+
   const originX = x;
   const originY = yTop - drawH;
 
-  // Sheet border
+  // Stock-sheet border
   page.drawRectangle({
     x: originX,
     y: originY,
@@ -269,32 +271,222 @@ const drawSheetDiagram = (
     color: rgb(1, 1, 1),
   });
 
-  // Surplus
-  for (const s of sheet.surplus) {
+  // Draw surplus areas first
+  for (const surplus of sheet.surplus) {
+    const surplusX = originX + surplus.x * scale;
+    const surplusY =
+      originY +
+      (sheet.length - surplus.y - surplus.length) * scale;
+
+    const surplusW = surplus.width * scale;
+    const surplusH = surplus.length * scale;
+
     page.drawRectangle({
-      x: originX + s.x * scale,
-      y: originY + (sheet.length - s.y - s.length) * scale,
-      width: s.width * scale,
-      height: s.length * scale,
-      color: s.reusable ? REUSABLE : SCRAP,
-      borderColor: s.reusable ? rgbColor("#6EE7B7") : rgbColor("#9CA3AF"),
+      x: surplusX,
+      y: surplusY,
+      width: surplusW,
+      height: surplusH,
+      color: surplus.reusable ? REUSABLE : SCRAP,
+      borderColor: surplus.reusable
+        ? rgbColor("#6EE7B7")
+        : rgbColor("#9CA3AF"),
       borderWidth: 0.3,
     });
+
+    // Only label surplus when the area is large enough
+    if (surplusW >= 45 && surplusH >= 20) {
+      const surplusLabel = surplus.reusable
+        ? `Reusable ${formatMmPlain(surplus.width)} x ${formatMmPlain(
+            surplus.length,
+          )}`
+        : "Scrap";
+
+      drawTextInsideRectangle(
+        page,
+        surplusLabel,
+        surplusX,
+        surplusY,
+        surplusW,
+        surplusH,
+        font,
+        6,
+        TEXT_GRAY,
+      );
+    }
   }
 
-  // Panels
-  sheet.placements.forEach((p, i) => {
-    const color = PANEL_COLORS[i % PANEL_COLORS.length];
+  // Draw panels and their labels
+  sheet.placements.forEach((placement, index) => {
+    const panelX = originX + placement.x * scale;
+    const panelY =
+      originY +
+      (sheet.length - placement.y - placement.length) * scale;
+
+    const panelW = placement.width * scale;
+    const panelH = placement.length * scale;
+
     page.drawRectangle({
-      x: originX + p.x * scale,
-      y: originY + (sheet.length - p.y - p.length) * scale,
-      width: p.width * scale,
-      height: p.length * scale,
-      color,
+      x: panelX,
+      y: panelY,
+      width: panelW,
+      height: panelH,
+      color: PANEL_COLORS[index % PANEL_COLORS.length],
       borderColor: rgbColor("#4B5563"),
       borderWidth: 0.5,
     });
+
+    const dimensions =
+      `${formatMm(placement.width, unit)} x ` +
+      `${formatMm(placement.length, unit)}`;
+
+    const rotationText = placement.rotated ? "Rotated" : "";
+
+    const labelLines = [
+      placement.displayLabel,
+      dimensions,
+      rotationText,
+    ].filter(Boolean);
+
+    drawMultilineTextInsideRectangle(
+      page,
+      labelLines,
+      panelX,
+      panelY,
+      panelW,
+      panelH,
+      font,
+    );
   });
+
+  // Overall sheet dimensions
+  page.drawText(formatMm(sheet.width, unit), {
+    x: originX + drawW / 2 - 20,
+    y: originY - 12,
+    size: 7,
+    font,
+    color: TEXT_GRAY,
+  });
+
+  page.drawText(formatMm(sheet.length, unit), {
+    x: originX + drawW + 4,
+    y: originY + drawH / 2,
+    size: 7,
+    font,
+    color: TEXT_GRAY,
+  });
+};
+
+const drawMultilineTextInsideRectangle = (
+  page: PDFPage,
+  lines: string[],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  font: PDFFont,
+): void => {
+  // Very small panels cannot contain useful labels.
+  if (width < 18 || height < 10) return;
+
+  const padding = 2;
+  const availableWidth = Math.max(1, width - padding * 2);
+  const availableHeight = Math.max(1, height - padding * 2);
+
+  let fontSize = Math.min(8, Math.max(4, Math.min(width, height) / 7));
+  let visibleLines = [...lines];
+
+  while (fontSize >= 4) {
+    const lineHeight = fontSize + 1;
+    const requiredHeight = visibleLines.length * lineHeight;
+
+    const longestLineWidth = Math.max(
+      ...visibleLines.map((line) => font.widthOfTextAtSize(line, fontSize)),
+    );
+
+    if (
+      requiredHeight <= availableHeight &&
+      longestLineWidth <= availableWidth
+    ) {
+      break;
+    }
+
+    fontSize -= 0.5;
+  }
+
+  // When the panel is too small, display only the first line.
+  if (fontSize < 4) {
+    fontSize = 4;
+    visibleLines = [truncateText(lines[0], font, fontSize, availableWidth)];
+  } else {
+    visibleLines = visibleLines.map((line) =>
+      truncateText(line, font, fontSize, availableWidth),
+    );
+  }
+
+  const lineHeight = fontSize + 1;
+  const totalTextHeight = visibleLines.length * lineHeight;
+
+  let textY = y + (height + totalTextHeight) / 2 - lineHeight;
+
+  for (const line of visibleLines) {
+    const textWidth = font.widthOfTextAtSize(line, fontSize);
+
+    page.drawText(line, {
+      x: x + Math.max(padding, (width - textWidth) / 2),
+      y: textY,
+      size: fontSize,
+      font,
+      color: TEXT_DARK,
+    });
+
+    textY -= lineHeight;
+  }
+};
+
+const drawTextInsideRectangle = (
+  page: PDFPage,
+  text: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  font: PDFFont,
+  fontSize: number,
+  color: RGB,
+): void => {
+  const safeText = truncateText(text, font, fontSize, width - 4);
+  const textWidth = font.widthOfTextAtSize(safeText, fontSize);
+
+  page.drawText(safeText, {
+    x: x + Math.max(2, (width - textWidth) / 2),
+    y: y + height / 2 - fontSize / 2,
+    size: fontSize,
+    font,
+    color,
+  });
+};
+
+const truncateText = (
+  text: string,
+  font: PDFFont,
+  fontSize: number,
+  maxWidth: number,
+): string => {
+  if (font.widthOfTextAtSize(text, fontSize) <= maxWidth) {
+    return text;
+  }
+
+  const suffix = "...";
+  let shortened = text;
+
+  while (
+    shortened.length > 1 &&
+    font.widthOfTextAtSize(shortened + suffix, fontSize) > maxWidth
+  ) {
+    shortened = shortened.slice(0, -1);
+  }
+
+  return shortened + suffix;
 };
 
 const drawSurplusRegister = (
