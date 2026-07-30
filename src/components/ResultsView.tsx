@@ -61,6 +61,33 @@ export function ResultsView({ project, result, onBack }: Props) {
           <SummaryPanel project={project} result={result} />
         </div>
 
+        {result.stockRecommendation && (
+            <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4">
+                <h3 className="font-semibold text-amber-900">
+                Additional stock required
+                </h3>
+
+                <p className="mt-1 text-sm text-amber-800">
+                The entered panel quantities exceed the available stock.
+                Add{" "}
+                <strong>
+                    {result.stockRecommendation.additionalQuantity}
+                </strong>{" "}
+                more{" "}
+                <strong>{result.stockRecommendation.label}</strong>
+                {result.stockRecommendation.additionalQuantity === 1 ? "" : " sheets"}.
+                </p>
+
+                <div className="mt-2 text-sm text-amber-800">
+                Available quantity:{" "}
+                {result.stockRecommendation.currentQuantity}
+                <br />
+                Suggested total quantity:{" "}
+                {result.stockRecommendation.requiredQuantity}
+                </div>
+            </div>
+            )}
+
         {result.unplacedPanels.length > 0 && (
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
             <h3 className="font-semibold text-red-800 mb-2">

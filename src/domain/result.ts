@@ -113,8 +113,19 @@ export type UnplacedPanel = {
   displayLabel: string;
 };
 
+export type StockSheetRecommendation = {
+  stockSheetId: string;
+  label: string;
+  currentQuantity: number;
+  requiredQuantity: number;
+  additionalQuantity: number;
+};
+
 export type OptimizationResult = {
   summary: ProjectSummary;
   sheets: SheetResult[];
   unplacedPanels: UnplacedPanel[];
+  stockRecommendation?: StockSheetRecommendation;
 };
+
+

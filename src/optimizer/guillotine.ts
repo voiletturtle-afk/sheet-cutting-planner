@@ -33,6 +33,69 @@ export const runOptimization = (
   project: Project,
   instances: PanelInstance[],
 ): OptimizationResult => {
+  if (project.stockSheets.length === 0) {
+    return runOptimizationWithLimit(project, instances, 0);
+  }
+
+  const currentQuantity = availableSheetCount(project);
+
+  const currentResult = runOptimizationWithLimit(
+    project,
+    instances,
+    currentQuantity,
+  );
+
+  // Everything fits in the available stock.
+  if (currentResult.unplacedPanels.length === 0) {
+    return currentResult;
+  }
+
+  /*
+   * In the worst case, every panel may need its own sheet.
+   * This gives the search a safe upper limit.
+   */
+  const maximumQuantity =
+    currentQuantity + currentResult.unplacedPanels.length;
+
+  for (
+    let testQuantity = currentQuantity + 1;
+    testQuantity <= maximumQuantity;
+    testQuantity++
+  ) {
+    const testResult = runOptimizationWithLimit(
+      project,
+      instances,
+      testQuantity,
+    );
+
+    if (testResult.unplacedPanels.length === 0) {
+      const stockSheet = project.stockSheets[0];
+
+      return {
+        ...currentResult,
+        stockRecommendation: {
+          stockSheetId: stockSheet.id,
+          label: stockSheet.label || "Stock sheet",
+          currentQuantity,
+          requiredQuantity: testQuantity,
+          additionalQuantity: testQuantity - currentQuantity,
+        },
+      };
+    }
+  }
+
+  /*
+   * No recommendation is returned when a panel cannot physically fit
+   * on the selected sheet, regardless of how many sheets are added.
+   */
+  return currentResult;
+};
+
+export const runOptimizationWithLimit  = (
+  project: Project,
+  instances: PanelInstance[],
+  maximumSheetCount: number,
+): OptimizationResult => {
   const kerf = project.settings.kerf;
   const minWidth = project.settings.minimumSurplusWidth;
   const minLength = project.settings.minimumSurplusLength;
@@ -110,8 +173,9 @@ export const runOptimization = (
       }
     }
 
+    
     if (!bestSheet || !bestSplit) {
-      if (sheets.length < availableSheetCount(project)) {
+      if (sheets.length < maximumSheetCount) {
         const newCtx = openNewSheet();
         const leaves = collectEmptyLeaves(newCtx.tree);
         for (const orient of orientations) {
